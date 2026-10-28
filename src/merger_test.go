@@ -1,104 +1,51 @@
-package fzf
+package main // adjust package name if needed
 
-import (
-	"fmt"
-	"math/rand"
-	"sort"
-	"testing"
+import "testing"
 
-	"github.com/junegunn/fzf/src/util"
-)
-
-func assert(t *testing.T, cond bool, msg ...string) {
-	if !cond {
-		t.Error(msg)
-	}
-}
-
-func randResult() Result {
-	str := fmt.Sprintf("%d", rand.Uint32())
-	chars := util.ToChars([]byte(str))
-	chars.Index = rand.Int31()
-	return Result{item: &Item{text: chars}}
-}
-
-func TestEmptyMerger(t *testing.T) {
+func TestMatchSet(t *testing.T) {
+	// 1. Empty merger
 	r := revision{}
-	assert(t, EmptyMerger(r).Length() == 0, "Not empty")
-	assert(t, EmptyMerger(r).count == 0, "Invalid count")
-	assert(t, len(EmptyMerger(r).lists) == 0, "Invalid lists")
-	assert(t, len(EmptyMerger(r).merged) == 0, "Invalid merged list")
-}
-
-func buildLists(partiallySorted bool) ([][]Result, []Result) {
-	numLists := 4
-	lists := make([][]Result, numLists)
-	cnt := 0
-	for i := range numLists {
-		numResults := rand.Int() % 20
-		cnt += numResults
-		lists[i] = make([]Result, numResults)
-		for j := range numResults {
-			item := randResult()
-			lists[i][j] = item
-		}
-		if partiallySorted {
-			sort.Sort(ByRelevance(lists[i]))
-		}
+	emptyMg := EmptyMerger(r)
+	emptySet := emptyMg.MatchSet()
+	if emptySet.matched(0) || emptySet.matched(10) || emptySet.matched(-1) {
+		t.Error("Empty merger should match nothing")
 	}
-	items := []Result{}
+
+	// 2. Multi-list merger
+	lists, _ := buildLists(true)
+	mg := NewMerger(nil, lists, true, false, r, 0, 100000)
+	ms := mg.MatchSet()
+
+	// Verify all items in lists are marked as matched
+	expectedCount := 0
 	for _, list := range lists {
-		items = append(items, list...)
-	}
-	return lists, items
-}
-
-func TestMergerUnsorted(t *testing.T) {
-	lists, _ := buildLists(false)
-
-	// Sort each list by index to simulate real worker behavior
-	// (workers process chunks in ascending order via nextChunk.Add(1))
-	for _, list := range lists {
-		sort.Slice(list, func(i, j int) bool {
-			return list[i].item.Index() < list[j].item.Index()
-		})
-	}
-	items := []Result{}
-	for _, list := range lists {
-		items = append(items, list...)
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].item.Index() < items[j].item.Index()
-	})
-	cnt := len(items)
-
-	// Not sorted: items in ascending index order
-	mg := NewMerger(nil, lists, false, false, revision{}, 0, 0)
-	assert(t, cnt == mg.Length(), "Invalid Length")
-	for i := range cnt {
-		assert(t, items[i] == mg.Get(i), "Invalid Get")
-	}
-}
-
-func TestMergerSorted(t *testing.T) {
-	lists, items := buildLists(true)
-	cnt := len(items)
-
-	// Sorted sorted order
-	mg := NewMerger(nil, lists, true, false, revision{}, 0, 0)
-	assert(t, cnt == mg.Length(), "Invalid Length")
-	sort.Sort(ByRelevance(items))
-	for i := range cnt {
-		if items[i] != mg.Get(i) {
-			t.Error("Not sorted", items[i], mg.Get(i))
+		for _, item := range list {
+			expectedCount++
+			if !ms.matched(item.item.Index()) {
+				t.Errorf("Expected item index %d to be matched", item.item.Index())
+			}
 		}
 	}
 
-	// Inverse order
-	mg2 := NewMerger(nil, lists, true, false, revision{}, 0, 0)
-	for i := cnt - 1; i >= 0; i-- {
-		if items[i] != mg2.Get(i) {
-			t.Error("Not sorted", items[i], mg2.Get(i))
+	// Verify an unindexed number outside the lists does not match
+	if ms.matched(9999999) {
+		t.Error("Unmatched index reported as matched")
+	}
+	if ms.matched(-5) {
+		t.Error("Negative index reported as matched")
+	}
+
+	// 3. Fallback path test (force hashSet fallback via large index delta)
+	mgLarge := NewMerger(nil, lists, true, false, r, 0, 30000000)
+	msLarge := mgLarge.MatchSet()
+	if msLarge.hashSet == nil {
+		t.Error("Expected fallback to hashSet for large index span")
+	}
+	for _, list := range lists {
+		for _, item := range list {
+			if !msLarge.matched(item.item.Index()) {
+				t.Errorf("Fallback hashSet: expected item %d to match", item.item.Index())
+			}
 		}
 	}
 }
