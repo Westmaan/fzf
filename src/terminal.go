@@ -428,7 +428,7 @@ type Terminal struct {
 	merger               *Merger
 	passMerger           *Merger
 	resultMerger         *Merger
-	matchMap             map[int32]Result
+	matchSet             *matchSet
 	selected             map[int32]selectedItem
 	version              int64
 	revision             revision
@@ -1158,7 +1158,7 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
 		merger:             em,
 		passMerger:         em,
 		resultMerger:       em,
-		matchMap:           make(map[int32]Result),
+		matchSet:           &matchSet{},
 		selected:           make(map[int32]selectedItem),
 		runningCmds:        util.NewConcurrentSet[*runningCmd](),
 		reqBox:             util.NewEventBox(),
@@ -2072,10 +2072,10 @@ func (t *Terminal) UpdateList(result MatchResult) {
 	t.passMerger = result.passMerger
 	if t.raw {
 		t.merger = result.passMerger
-		t.matchMap = t.resultMerger.ToMap()
+		t.matchSet = t.resultMerger.MatchSet()
 	} else {
 		t.merger = result.merger
-		t.matchMap = make(map[int32]Result)
+		t.matchSet = nil
 	}
 	if t.revision != newRevision {
 		if !t.revision.compatible(newRevision) {
@@ -2114,10 +2114,12 @@ func (t *Terminal) UpdateList(result MatchResult) {
 		// Must be inside the revision check so we don't consume the flag
 		// on a stale EvtSearchFin from a previous search.
 		if t.filterSelection && t.multi > 0 && len(t.selected) > 0 {
-			matchMap := t.resultMerger.ToMap()
+			if t.matchSet == nil {
+				t.matchSet = t.resultMerger.MatchSet()
+			}
 			filtered := make(map[int32]selectedItem)
 			for k, v := range t.selected {
-				if _, matched := matchMap[k]; matched {
+				if t.matchSet.matched(k) {
 					filtered[k] = v
 				}
 			}
@@ -3978,11 +3980,8 @@ func (t *Terminal) printBar(lineNum int, forceRedraw bool, barRange [2]int) bool
 func (t *Terminal) printItem(result Result, line int, maxLine int, index int, current bool, barRange [2]int) int {
 	item := result.item
 	matched := true
-	var matchResult Result
 	if t.raw {
-		if matchResult, matched = t.matchMap[item.Index()]; matched {
-			result = matchResult
-		}
+		matched = t.isItemMatch(item)
 	}
 
 	_, selected := t.selected[item.Index()]
@@ -5940,8 +5939,7 @@ func (t *Terminal) isCurrentItemMatch() bool {
 }
 
 func (t *Terminal) isItemMatch(item *Item) bool {
-	_, matched := t.matchMap[item.Index()]
-	return matched
+	return t.matchSet.matched(item.Index())
 }
 
 func (t *Terminal) filterSelected() {
@@ -7668,9 +7666,8 @@ func (t *Terminal) Loop() error {
 				prevPos := t.cy - t.offset
 				prevIndex := t.currentIndex()
 				if newRaw {
-					// Build matchMap if not available
-					if len(t.matchMap) == 0 {
-						t.matchMap = t.resultMerger.ToMap()
+					if t.matchSet == nil {
+						t.matchSet = t.resultMerger.MatchSet()
 					}
 					t.merger = t.passMerger
 				} else {
