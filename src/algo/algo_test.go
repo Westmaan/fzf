@@ -302,6 +302,40 @@ func TestFuzzyMatchV2TwoEquivalence(t *testing.T) {
 	}
 }
 
+func TestEarlyBreakPrematurityBug(t *testing.T) {
+	defer Init("default")
+
+	// 1. Default scheme: whitespace boundary (bonus 10) must beat hyphen boundary (bonus 8)
+	Init("default")
+	input := "foo-bar bar"
+
+	// Single-char fast path (fuzzyMatchV2Single) and general path (FuzzyMatchV2)
+	for _, disable := range []bool{false, true} {
+		disableSingle = disable
+		assertMatch(t, FuzzyMatchV2, false, true, input, "b", 8, 9,
+			scoreMatch+int(bonusBoundaryWhite)*bonusFirstCharMultiplier)
+	}
+	disableSingle = false
+
+	// Exact match (exactMatchNaive)
+	assertMatch(t, ExactMatchNaive, false, true, input, "bar", 8, 11,
+		(scoreMatch+int(bonusBoundaryWhite))*3+int(bonusBoundaryWhite)*(bonusFirstCharMultiplier-1))
+
+	// 2. Path scheme: delimiter boundary (bonus 9) must beat hyphen boundary (bonus 8)
+	Init("path")
+	pathInput := "foo-bar/bar"
+
+	for _, disable := range []bool{false, true} {
+		disableSingle = disable
+		assertMatch(t, FuzzyMatchV2, false, true, pathInput, "b", 8, 9,
+			scoreMatch+int(bonusBoundaryDelimiter)*bonusFirstCharMultiplier)
+	}
+	disableSingle = false
+
+	assertMatch(t, ExactMatchNaive, false, true, pathInput, "bar", 8, 11,
+		(scoreMatch+int(bonusBoundaryDelimiter))*3+int(bonusBoundaryDelimiter)*(bonusFirstCharMultiplier-1))
+}
+
 func equalInts(a, b []int) bool {
 	if len(a) != len(b) {
 		return false
