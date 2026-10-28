@@ -1,0 +1,20 @@
+name: Test Algo
+
+on:
+  workflow_dispatch:   
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'   
+
+      - name: Run the specific test
+        run: |
+          go test ./src/algo/ -run TestEarlyBreakPrematurityBug -v
+          go test ./src/algo/ -count=1
