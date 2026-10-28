@@ -152,6 +152,8 @@ var (
 	// Extra bonus for word boundary after slash, colon, semi-colon, and comma
 	bonusBoundaryDelimiter int16 = bonusBoundary + 1
 
+	maxBonus int16 = bonusBoundary + 2
+
 	initialCharClass = charWhite
 
 	// A minor optimization that can give 15%+ performance boost
@@ -193,6 +195,7 @@ func Init(scheme string) bool {
 	default:
 		return false
 	}
+	maxBonus = max(bonusBoundaryWhite, bonusBoundaryDelimiter)
 	for i := 0; i <= unicode.MaxASCII; i++ {
 		char := rune(i)
 		c := charNonWord
@@ -528,7 +531,7 @@ func fuzzyMatchV2Single(caseSensitive bool, forward bool, input *util.Chars, b b
 		score := scoreMatch + bonus*bonusFirstCharMultiplier
 		if forward && score > maxScore || !forward && score >= maxScore {
 			maxScore, maxScorePos = score, idx
-			if forward && bonus >= bonusBoundary {
+			if forward && bonus >= maxBonus {
 				break
 			}
 		}
@@ -817,7 +820,7 @@ func FuzzyMatchV2(caseSensitive bool, normalize bool, forward bool, input *util.
 			C0[off] = 1
 			if M == 1 && (forward && score > maxScore || !forward && score >= maxScore) {
 				maxScore, maxScorePos = score, off
-				if forward && bonus >= bonusBoundary {
+				if forward && bonus >= maxBonus {
 					break
 				}
 			}
@@ -1182,7 +1185,7 @@ func exactMatchNaive(caseSensitive bool, normalize bool, forward bool, boundaryC
 				if bonus > bestBonus {
 					bestPos, bestBonus = index, bonus
 				}
-				if bonus >= bonusBoundary {
+				if bonus >= maxBonus {
 					break
 				}
 				index -= pidx - 1
